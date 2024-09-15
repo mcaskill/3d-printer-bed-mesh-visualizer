@@ -421,14 +421,14 @@ a:hover {
 
 details {
 	border: 1px solid var(--secondary-light);
-	display: block;
-	padding: 0 1rem;
+	/*display: block;
+	padding: 0 1rem;*/
 }
 
-details summary {
+/*details summary {
 	margin: 0 -1rem;
 	padding: 1rem;
-}
+}*/
 
 details[open] summary {
 	border-bottom: 1px solid var(--secondary-light);
@@ -493,7 +493,6 @@ svg:not(:root) {
 	overflow: hidden;
 }
 
-
 /**
  * 3DPABLMV
  * ---------------------------------------------------------------------
@@ -508,30 +507,42 @@ svg:not(:root) {
 	outline-offset: 2px;
 }
 
-c-panel,
-c-actions {
-	display: block;
+details {
+	padding-inline: var(--layout-gap);
 }
 
-c-panel + c-panel {
-	margin-top: 1.5em;
-}
-
-c-panel fieldset {
+details summary {
+	margin-inline: calc(var(--layout-gap) * -1);
 	padding: var(--layout-gap);
-	padding-top: calc(var(--layout-gap) / 2);
 }
 
-c-panel output,
-c-panel textarea {
+v-graph-panel,
+v-graph-panels {
 	display: block;
 }
 
-c-panel textarea {
+details > v-graph-panel {
+	padding-block: var(--layout-gap);
+}
+
+v-graph-panel + v-graph-panel {
+	margin-block-start: 1.5em;
+}
+
+v-graph-panel fieldset {
+	padding: var(--layout-gap);
+	padding-block-start: calc(var(--layout-gap) / 2);
+}
+
+v-graph-panel output,
+v-graph-panel textarea {
+	display: block;
+}
+
+v-graph-panel textarea {
 	font-family: monospace;
 	width: 100%;
 }
-
 
 .o-flex {
 	display: flex;
@@ -540,10 +551,10 @@ c-panel textarea {
 }
 
 .o-flex > * + * {
-	margin-left: var(--layout-gap);
+	margin-inline-start: var(--layout-gap);
 }
 
-c-panel .o-layout {
+v-graph-panel .o-layout {
 	display: grid;
 	grid-auto-flow: column;
 	grid-template-columns: 1fr 1fr;
@@ -554,7 +565,7 @@ c-panel .o-layout {
 		". .";
 }
 
-c-panel .c-graph {
+v-graph-panel .c-graph {
 	/** Applying similar styles as textarea */
 	border: 1px solid var(--secondary-light);
 	border-radius: var(--border-radius);
@@ -572,13 +583,13 @@ c-panel .c-graph {
 	width: 100%;
 }
 
-c-panel textarea,
-c-panel .c-graph {
+v-graph-panel textarea,
+v-graph-panel .c-graph {
 	height: 50vh;
 	min-height: 16rem;
 }
 
-c-panel .c-stats {
+v-graph-panel .c-stats {
 	/** Applying similar styles as button */
 	align-items: center;
 	box-sizing: border-box;
@@ -600,33 +611,10 @@ c-panel .c-stats {
 	cursor: not-allowed;
 }
 
-c-panel .js-plotly-plot .plotly .modebar--hover > :not(.watermark) {
+v-graph-panel .js-plotly-plot .plotly .modebar--hover > :not(.watermark) {
 	opacity: 1;
 }
 
-c-panel .js-plotly-plot .plotly a:focus {
+v-graph-panel .js-plotly-plot .plotly a:focus {
 	outline-offset: 0;
-}
-
-.screen-reader-text {
-	border-width: 0;
-	clip: rect(0, 0, 0, 0);
-	height: 1px;
-	margin: -1px;
-	overflow: hidden;
-	padding: 0;
-	position: absolute;
-	white-space: nowrap;
-	width: 1px;
-}
-
-.screen-reader-text:focus {
-	clip: auto;
-	height: auto;
-	margin: 0;
-	overflow: visible;
-	padding: 0;
-	position: static;
-	white-space: normal;
-	width: auto;
 }

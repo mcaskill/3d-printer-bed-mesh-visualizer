@@ -1,35 +1,19 @@
-import 'https://cdn.plot.ly/plotly-2.18.2.min.js';
-
 const APP = '3DPABLMV';
 
-const debug = true; // 'debug' in document.documentElement.mesh;
+const DEBUG = true; // 'debug' in document.documentElement.mesh;
 
 const store = isStorageAvailable(window.localStorage)
 	? window.localStorage
 	: null;
 
-debug && console.log(`[${APP}]`, 'isStorageAvailable:', !!store);
-
-/**
- * @param {HTMLElement} element
- * @param {boolean}     busy
- */
-function applyBusyState(element, busy = true) {
-	element.setAttribute('aria-busy', (element.ariaBusy = busy));
+if (!store) {
+	console.warn(`[${APP}]`, 'Local storage unavailable');
 }
 
 /**
- * @param {HTMLElement} element
- * @param {boolean}     disabled
- */
-function applyDisabledState(element, disabled = true) {
-	element.setAttribute('aria-disabled', (element.ariaDisabled = disabled));
-}
-
-/**
- * @param {int[]} array
+ * @param {number[]} array
  *
- * @returns {int}
+ * @returns {number}
  */
 function calculateStandardDeviation(array) {
 	if (!array || array.length === 0) {
@@ -105,13 +89,26 @@ function drawGraph(graphElement, stdElement, data) {
 	};
 
 	const graphPromise = Plotly.react(graphElement, graphData, graphLayout, graphConfig);
-	graphPromise.then(() => applyBusyState(graphElement, false));
+	graphPromise.finally(() => graphElement.ariaBusy = null);
 	promises.push(graphPromise);
 
 	return Promise.all(promises);
 }
 
 /**
+ * Removes extraneous line endings from the beginning and ending of the input.
+ *
+ * @param {string} value
+ *
+ * @returns {string}
+ */
+function filterOuterLineEndings(value) {
+	return value.replace(/^[\r\n]+|[\r\n]+$/g, '');
+}
+
+/**
+ * Sanitizes each row and column for the visualizer to process the data.
+ *
  * @param {string} rawData
  *
  * @returns {string}
@@ -146,7 +143,7 @@ function filterRawData(rawData) {
  * @link https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API/Using_the_Web_Storage_API#Feature-detecting_localStorage
  *
  * @param  {Storage} storage
- * @return {boolean}
+ * @returns {boolean}
  */
 function isStorageAvailable(storage) {
 	try {
@@ -174,7 +171,7 @@ function isStorageAvailable(storage) {
  * Determines whether the specified error is a storage quota exceeded.
  *
  * @param  {Error} error
- * @return {boolean}
+ * @returns {boolean}
  */
 function isStorageQuotaExceeded(error) {
 	var quotaExceeded = false;
@@ -200,181 +197,177 @@ function isStorageQuotaExceeded(error) {
 	return quotaExceeded;
 }
 
-class MeshPanelElement extends HTMLElement {
-	constructor() {
-		super();
+/**
+ * @param {any} value
+ *
+ * @returns {boolean}
+ */
+function isTrue(value) {
+	if (typeof value === 'boolean') {
+		return value;
+	}
+
+	if (typeof value === 'string') {
+		return value === 'true';
+	}
+
+	return !!value;
+}
+
+/**
+ * Executes a callback when the DOM is loaded.
+ *
+ * @param {function} callback
+ *
+ * @returns {void}
+ */
+function whenDOMReady(callback) {
+	if (typeof document === 'undefined') {
+		return;
+	}
+
+	if (document.readyState === 'complete' || document.readyState === 'interactive') {
+		return void callback();
+	}
+
+	document.addEventListener('DOMContentLoaded', callback);
+}
+
+/**
+ * Executes a callback while the element's ARIA region is busy.
+ *
+ * If the region was already busy, the state will not be toggled afterwards.
+ *
+ * @param {HTMLElement} element
+ * @param {function}    callback
+ *
+ * @returns {unknown} The return value of the callback.
+ */
+async function whileElementIsBusy(element, callback) {
+	const isAriaBusy = isTrue(element.ariaBusy);
+	if (!isAriaBusy) {
+		element.ariaBusy = true;
+	}
+
+	const returnValue = await callback();
+
+	if (!isAriaBusy) {
+		element.ariaBusy = null;
+	}
+
+	return returnValue;
+}
+
+/**
+ * Executes a callback while the element is read only.
+ *
+ * If the element was already read only, the state will not be toggled afterwards.
+ *
+ * @param {HTMLElement} element
+ * @param {function}    callback
+ *
+ * @returns {unknown} The return value of the callback.
+ */
+async function whileElementIsReadOnly(element, callback) {
+	const isReadOnly = element.readOnly;
+	if (!isReadOnly) {
+		element.readOnly = true;
+	}
+
+	const returnValue = await callback();
+
+	if (!isReadOnly) {
+		element.readOnly = null;
+	}
+
+	return returnValue;
+}
+
+class MeshGraphPanelElement extends HTMLElement {
+	/**
+	 * @param {string}                tagName
+	 * @param {CustomElementRegistry} registry
+	 *
+	 * @returns {void}
+	 */
+	static register(tagName = this.tagName, registry = globalThis.customElements) {
+		registry?.define(tagName, this);
+	}
+
+	static get tagName() {
+		return 'v-graph-panel';
+	}
+
+	/**
+	 * @type {?AbortController}
+	 */
+	#controller;
+
+	connectedCallback() {
+		this.#controller = new AbortController();
 
 		this.#bindEventListeners();
-		this.#mountButtons();
-		this.#mountInput();
+
+		whileElementIsBusy(this, async () => {
+			const inputElement = this.inputElement;
+
+			await whileElementIsReadOnly(inputElement, async () => {
+				if (!inputElement.value) {
+					await this.#updateInputFromStore();
+				}
+
+				if (!inputElement.value) {
+					DEBUG && console.log(`[${APP}]`, 'No input to graph');
+					return;
+				}
+
+				await this.#processInput();
+			});
+		});
+	}
+
+	disconnectedCallback() {
+		this.#controller.abort();
+	}
+
+	handleEvent(event) {
+		event.preventDefault();
+
+		if (event.target.dataset.controlAction === 'reset') {
+			return this.reset();
+		}
+
+		if (event.target.dataset.controlAction === 'submit') {
+			return this.submit();
+		}
 	}
 
 	#bindEventListeners() {
-		// debug && console.group(`[${APP}]`, 'MeshPanelElement.#bindEventListeners');
+		this.controls.forEach((control) => {
+			if (![ 'reset', 'submit' ].includes(control.dataset.controlAction)) {
+				return;
+			}
 
-		const resetterElement = this.resetterElement;
-		if (resetterElement) {
-			// debug && console.log('Binding Resetter:', resetterElement);
-			resetterElement.addEventListener(
-				'click',
-				(event) => this.reset(),
-				{ capture: true }
-			);
-		}
+			control.addEventListener('click', this, {
+				capture: true,
+				signal:  this.#controller.signal,
+			});
 
-		const submitterElement = this.submitterElement;
-		if (submitterElement) {
-			// debug && console.log('Binding Submitter:', submitterElement);
-			submitterElement.addEventListener(
-				'click',
-				(event) => this.submit(),
-				{ capture: true }
-			);
-		}
+			control.ariaDisabled = null;
 
-		// debug && console.groupEnd();
+			if (control.ariaDescribedby === 'mesh-control-disabled-reason') {
+				control.ariaDescribedby = null;
+			}
+		});
 	}
 
-	#filterInput(value) {
-		return value.replace(/^[\r\n]+|[\r\n]+$/g, '');
-	}
-
-	#mountButtons() {
-		// debug && console.group(`[${APP}]`, 'MeshPanelElement.#mountButtons');
-
-		this.controlElements.forEach(
-			(controlElement) => applyDisabledState(controlElement, false)
-		);
-
-		// debug && console.groupEnd();
-	}
-
-	#resetOutput() {
+	#resetOutputs() {
 		Plotly.purge(this.graphElement);
-		this.outputElements.forEach((outputElement) => outputElement.value = '');
+		this.outputElements.forEach((output) => output.value = '');
 	}
 
-	async reset() {
-		debug && console.group(`[${APP}]`, 'MeshPanelElement.reset');
-
-		if (!this.#isIdle) {
-			debug && (
-				console.log('Not Idle'),
-				console.groupEnd()
-			);
-			return;
-		}
-
-		this.#isBusy = true;
-
-		const inputElement = this.inputElement;
-		inputElement.value = '';
-
-		if (store) {
-			try {
-				store.removeItem(inputElement.id);
-			} catch (error) {
-				console.warn(`[${APP}]`, 'Storage:', `Cannot remove value of [${inputElement.id}]:`, error);
-			}
-		}
-
-		this.#resetOutput();
-
-		this.#isBusy = false;
-
-		debug && console.groupEnd();
-	}
-
-	async submit() {
-		debug && console.group(`[${APP}]`, 'MeshPanelElement.submit');
-
-		if (!this.#isIdle) {
-			debug && (
-				console.log('Not Idle'),
-				console.groupEnd()
-			);
-			return;
-		}
-
-		this.#isBusy = true;
-
-		const inputElement = this.inputElement;
-		inputElement.value = this.#filterInput(inputElement.value);
-
-		if (!inputElement.value) {
-			this.#isBusy = false;
-			debug && (
-				console.log('No Value'),
-				console.groupEnd()
-			);
-			return;
-		}
-
-		if (store) {
-			try {
-				store.setItem(inputElement.id, inputElement.value);
-			} catch (error) {
-				console.warn(`[${APP}]`, 'Storage:', `Cannot store value of [${inputElement.id}]:`, (
-					isStorageQuotaExceeded(error)
-					? 'Storage is full'
-					: error
-				));
-			}
-		}
-
-		await this.#processInput();
-
-		this.#isBusy = false;
-
-		debug && console.groupEnd();
-	}
-
-	async #mountInput() {
-		debug && console.group(`[${APP}]`, 'MeshPanelElement.#mountInput');
-
-		if (!this.#isIdle) {
-			debug && (
-				console.log('Not Idle'),
-				console.groupEnd()
-			);
-			return;
-		}
-
-		this.#isBusy = true;
-
-		const inputElement = this.inputElement;
-
-		if (!inputElement.value && store?.length) {
-			try {
-				const storeItem = store.getItem(inputElement.id);
-				if (storeItem) {
-					inputElement.value = this.#filterInput(storeItem);
-				}
-			} catch (error) {
-				console.warn(`[${APP}]`, 'Storage:', `Cannot retrieve value of [${inputElement.id}]:`, error);
-			}
-		}
-
-		if (inputElement.value) {
-			await this.#processInput();
-		}
-
-		this.#isBusy = false;
-
-		debug && console.groupEnd();
-	}
-
-	async #processInput() {
-		debug && console.log(`[${APP}]`, 'MeshPanelElement.#processInput');
-		return await drawGraph(
-			this.graphElement,
-			this.statsElement,
-			filterRawData(this.inputElement.value)
-		);
-	}
-
-	get controlElements() {
-		return this.querySelectorAll('[data-control]');
+	get controls() {
+		return this.querySelectorAll('[data-control-target="panel"][data-control-action]');
 	}
 
 	get graphElement() {
@@ -385,87 +378,152 @@ class MeshPanelElement extends HTMLElement {
 		return this.querySelector('textarea');
 	}
 
-	/**
-	 * @returns {boolean}
-	 */
-	get isBusy() {
-		if (typeof this.ariaBusy === 'boolean') {
-			return this.ariaBusy;
-		}
-
-		return this.getAttribute('aria-busy') === 'true';
-	}
-
-	/**
-	 * @returns {boolean}
-	 */
-	get isEnabled() {
-		return !this.#isDisabled();
-	}
-
 	get outputElements() {
 		return this.querySelectorAll('output');
-	}
-
-	get resetterElement() {
-		return this.querySelector('[data-control="reset"]');
 	}
 
 	get statsElement() {
 		return this.querySelector('.c-stats');
 	}
 
-	get submitterElement() {
-		return this.querySelector('[data-control="visualize"]');
-	}
-
-	/**
-	 * @returns {boolean}
-	 */
-	get #isDisabled() {
-		if (typeof this.ariaDisabled === 'boolean') {
-			return this.ariaDisabled;
+	async reset() {
+		if (isTrue(this.ariaBusy)) {
+			console.warn(`[${APP}]`, `#${this.id}`, 'Cannot reset. Panel not idle.');
+			return;
 		}
 
-		return this.getAttribute('aria-disabled') === 'true';
+		await whileElementIsBusy(this, async () => {
+			const inputElement = this.inputElement;
+			inputElement.value = '';
+
+			if (store) {
+				try {
+					store.removeItem(inputElement.id);
+				} catch (error) {
+					console.warn(`[${APP}]`, 'Storage:', `Cannot remove value of [${inputElement.id}]:`, error);
+				}
+			}
+
+			this.#resetOutputs();
+		});
 	}
 
-	/**
-	 * @returns {boolean}
-	 */
-	get #isIdle() {
-		return (!this.isBusy && !this.#isDisabled);
+	async submit() {
+		if (isTrue(this.ariaBusy)) {
+			console.warn(`[${APP}]`, `#${this.id}`, 'Cannot submit. Panel not idle.');
+			return;
+		}
+
+		await whileElementIsBusy(this, async () => {
+			const inputElement = this.inputElement;
+
+			await whileElementIsReadOnly(inputElement, async () => {
+				inputElement.value = filterOuterLineEndings(inputElement.value);
+
+				if (!inputElement.value) {
+					console.warn(`[${APP}]`, 'No input to graph');
+					return;
+				}
+
+				if (store) {
+					try {
+						store.setItem(inputElement.id, inputElement.value);
+					} catch (error) {
+						console.warn(`[${APP}]`, 'Storage:', `Cannot store value of [${inputElement.id}]:`, (
+							isStorageQuotaExceeded(error)
+							? 'Storage is full'
+							: error
+						));
+					}
+				}
+
+				await this.#processInput();
+			});
+		});
 	}
 
-	/**
-	 * @param {boolean} state
-	 */
-	set #isBusy(state) {
-		applyBusyState(this, state);
-		this.inputElement.readOnly = state;
+	async #processInput() {
+		return await drawGraph(
+			this.graphElement,
+			this.statsElement,
+			filterRawData(this.inputElement.value)
+		);
+	}
+
+	async #updateInputFromStore() {
+		if (!store?.length) {
+			DEBUG && console.log(`[${APP}]`, 'Storage:', 'Empty');
+		}
+
+		const inputElement = this.inputElement;
+
+		try {
+			const storeItem = store.getItem(inputElement.id);
+			if (storeItem) {
+				inputElement.value = filterOuterLineEndings(storeItem);
+			}
+		} catch (error) {
+			console.warn(`[${APP}]`, 'Storage:', `Cannot retrieve value of [${inputElement.id}]:`, error);
+		}
 	}
 }
 
-customElements.define('c-panel', MeshPanelElement);
+class MeshGraphPanelsElement extends HTMLElement {
+	/**
+	 * @param {string}                tagName
+	 * @param {CustomElementRegistry} registry
+	 *
+	 * @returns {void}
+	 */
+	static register(tagName = this.tagName, registry = globalThis.customElements) {
+		registry?.define(tagName, this);
+	}
 
-class MeshActionsElement extends HTMLElement {
-	constructor() {
-		super();
+	static get tagName() {
+		return 'v-graph-panels';
+	}
+
+	/**
+	 * @type {?AbortController}
+	 */
+	#controller;
+
+	connectedCallback() {
+		this.#controller = new AbortController();
 
 		this.#bindEventListeners();
-		this.#mountButtons();
+	}
+
+	disconnectedCallback() {
+		this.#controller.abort();
+	}
+
+	handleEvent(event) {
+		event.preventDefault();
+
+		if (event.target.dataset.controlAction === 'append') {
+			return this.addPanel();
+		}
+
+		if (event.target.dataset.controlAction === 'reset') {
+			return this.resetPanels();
+		}
+
+		if (event.target.dataset.controlAction === 'submit') {
+			return this.submitPanels();
+		}
 	}
 
 	addPanel() {
-		debug && console.group(`[${APP}]`, 'MeshActionsElement.resetAll');
+		DEBUG && console.group(`[${APP}]`, 'MeshActionsElement.addPanel');
 
 		const container = document.querySelector('#mesh-panel-container');
 		if (!container) {
 			console.warn(`[${APP}]`, 'Cannot add panel:', 'Missing container');
 
-			applyDisabledState(this.adderElement);
+			this.appenders.forEach((appender) => appender.ariaDisabled = true);
 
-			debug && console.groupEnd();
+			DEBUG && console.groupEnd();
 			return;
 		}
 
@@ -473,9 +531,9 @@ class MeshActionsElement extends HTMLElement {
 		if (!template) {
 			console.warn(`[${APP}]`, 'Cannot add panel:', 'Missing template');
 
-			applyDisabledState(this.adderElement);
+			this.appenders.forEach((appender) => appender.ariaDisabled = true);
 
-			debug && console.groupEnd();
+			DEBUG && console.groupEnd();
 			return;
 		}
 
@@ -494,89 +552,50 @@ class MeshActionsElement extends HTMLElement {
 			counter.name = (Number.parseInt(counter.name) + 1);
 		}
 
-		debug && console.groupEnd();
+		DEBUG && console.groupEnd();
+	}
+
+	async resetPanels() {
+		const promises = Array.from(this.panels).map((panel) => panel.reset());
+
+		return await Promise.allSettled(promises);
+	}
+
+	async submitPanels() {
+		const promises = Array.from(this.panels).map((panel) => panel.submit());
+
+		return await Promise.allSettled(promises);
 	}
 
 	#bindEventListeners() {
-		// debug && console.group(`[${APP}]`, 'MeshActionsElement.#bindEventListeners');
+		this.controls.forEach((control) => {
+			if (![ 'append', 'reset', 'submit' ].includes(control.dataset.controlAction)) {
+				return;
+			}
 
-		const resetterElement = this.resetterElement;
-		if (resetterElement) {
-			// debug && console.log('Binding Resetter:', resetterElement);
-			resetterElement.addEventListener(
-				'click',
-				(event) => this.resetAll(),
-				{ capture: true }
-			);
-		}
+			control.addEventListener('click', this, {
+				capture: true,
+				signal:  this.#controller.signal,
+			});
 
-		const submitterElement = this.submitterElement;
-		if (submitterElement) {
-			// debug && console.log('Binding Submitter:', submitterElement);
-			submitterElement.addEventListener(
-				'click',
-				(event) => this.submitAll(),
-				{ capture: true }
-			);
-		}
+			control.ariaDisabled = null;
 
-		const adderElement = this.adderElement;
-		if (adderElement) {
-			// debug && console.log('Binding Adder:', adderElement);
-			adderElement.addEventListener(
-				'click',
-				(event) => {
-					event.preventDefault();
-					this.addPanel();
-				},
-				{ capture: true }
-			);
-		}
-
-		// debug && console.groupEnd();
+			if (control.ariaDescribedby === 'mesh-control-disabled-reason') {
+				control.ariaDescribedby = null;
+			}
+		});
 	}
 
-	#mountButtons() {
-		// debug && console.group(`[${APP}]`, 'MeshActionsElement.#mountButtons');
-
-		this.controlElements.forEach(
-			(controlElement) => applyDisabledState(controlElement, false)
-		);
-
-		// debug && console.groupEnd();
+	get controls() {
+		return this.querySelectorAll('[data-control-target="panels"][data-control-action]');
 	}
 
-	async resetAll() {
-		debug && console.group(`[${APP}]`, 'MeshActionsElement.resetAll');
-
-		document.querySelectorAll('c-panel').forEach((el) => el.reset());
-
-		debug && console.groupEnd();
-	}
-
-	async submitAll() {
-		debug && console.group(`[${APP}]`, 'MeshActionsElement.submitAll');
-
-		document.querySelectorAll('c-panel').forEach((el) => el.submit());
-
-		debug && console.groupEnd();
-	}
-
-	get controlElements() {
-		return this.querySelectorAll('[data-control]');
-	}
-
-	get adderElement() {
-		return this.querySelector('[data-control="add"]');
-	}
-
-	get resetterElement() {
-		return this.querySelector('[data-control="reset"]');
-	}
-
-	get submitterElement() {
-		return this.querySelector('[data-control="visualize"]');
+	get panels() {
+		return this.querySelectorAll(MeshGraphPanelElement.tagName);
 	}
 }
 
-customElements.define('c-actions', MeshActionsElement);
+whenDOMReady(() => {
+	MeshGraphPanelElement.register();
+	MeshGraphPanelsElement.register();
+});
