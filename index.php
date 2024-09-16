@@ -143,7 +143,7 @@ $favicon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d=
 			<template id="mesh-panel-template"><?php echo $template_panel; ?></template>
 		</form>
 	</v-graph-panels>
-	<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous"></script>
+	<script src="https://cdn.plot.ly/plotly-strict-2.35.2.min.js" integrity="sha384-Hfut3IowdVCNAh4POKIRl2hZYJUv5ib+W9dJOxfvf9XC4IsZAw4JHl4lyf9rcIGv" crossorigin="anonymous"></script>
 	<script type="module" src="app.js" integrity="sha384-lQPGPhLISIkAxXPdnqc2VVbYCFBdazMxaXlSDHNBXmbZ7yK8lhbyYBfcD7Kn76kD"></script>
 </body>
 </html>
